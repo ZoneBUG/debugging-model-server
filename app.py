@@ -2,13 +2,13 @@ import argparse
 import io
 
 import torch
-from flask import Flask, request
+from flask import Flask, request, current_app
 from PIL import Image
+import datetime
 
 import config
-from db_connect import db
+import pymysql
 
-from flask_jsonpify import jsonpify 
 import json
 
 import firebase_admin
@@ -19,7 +19,16 @@ firebase_admin.initialize_app(cred)
 
 app = Flask(__name__)
 models = {}
+conn = pymysql.connect(
+    host = config.db['host'],
+    port = config.db['port'],
+    user = config.db['user'],
+    password = config.db['password'],
+    db = config.db['database']
+)
 
+
+# API - Search
 @app.route("/model/search/<model>", methods=['POST'])
 def predict(model):
     if request.method != 'POST':
@@ -44,12 +53,37 @@ def predict(model):
         return json_data
 
 
+
+# API - Save scenario
+@app.route("/scenario", methods=['POST'])
+def save():
+    if request.method != 'POST':
+        return
+    
+    params = request.get_json()
+    cursor = conn.cursor()
+
+    if params:
+        userId = params['userId']
+        bugId = params['bugId']
+        image = params['image']
+        createdAt =  datetime.datetime.now()
+        
+        cursor.execute("INSERT INTO scenario (user_id, bug_id, image, created_at) VALUES(%s, %s, %s, %s)", (userId, bugId, image, createdAt))
+        conn.commit()
+        
+        return "success"
+
+
+
+# API -  Create Report
 @app.route("/report/<model>", methods=['POST'])
 def analyze(model):
     if request.method != 'POST':
         return
     
     params = request.get_json()
+    
     if params:
         video_url = params['url']
         created_at = params['created_at']
@@ -61,9 +95,7 @@ def analyze(model):
 
 
 def create_app():
-    app.config.from_object(config)
-    db.init_app(app)
-    
+    app.config.from_pyfile("config.py")
     return app
 
 
