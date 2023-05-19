@@ -2,9 +2,11 @@ import argparse
 import io
 
 import torch
-from flask import Flask, request, current_app
+from flask import Flask, request
 from PIL import Image
 import datetime
+
+# import detect
 
 import config
 import pymysql
@@ -38,19 +40,35 @@ def predict(model):
         im_file = request.files['image']
         im_bytes = im_file.read()
         im = Image.open(io.BytesIO(im_bytes))
+        print("image ok")
 
         if model in models:
             results = models[model](im, size=320)  # reduce size=320 for faster inference
             json_data = {}
 
             if (len(results.pandas().xyxy[0]) == 0):
-                json_data["type"] = "발견된 해충이 없음"
+                json_data["species"] = "발견된 해충이 없음"
+                json_data["description"] = ""
 
             else:
                 r = json.loads(results.pandas().xyxy[0]["name"].to_json(orient="records"))
-                json_data["type"] = r[0]
+
+                if(r[0] == 'Cockroach'):
+                    sql = "select * from bug where id = %s"
+                    cursor = conn.cursor()
+                    cursor.execute(sql, 1)
+                    info = cursor.fetchone()
+                    species = info[1]
+                    description = info[2]
+
+                    json_data["species"] = species
+                    json_data["description"] = description
+
+                    conn.commit()
             
         return json_data
+    
+    return "fail"
 
 
 
@@ -73,6 +91,8 @@ def save():
         conn.commit()
         
         return "success"
+    
+    return
 
 
 
@@ -86,12 +106,13 @@ def analyze(model):
     
     if params:
         video_url = params['url']
-        created_at = params['created_at']
         
-        if model in models:
-            results = models[model](video_url, size = 1920)
-            print(results.pandas().xyxy[0][0].to_json(orient='records'))
-            return "hello"
+        # if model in models:
+        results = models[model](size = 1920, source = video_url)
+        print(results.to_json(orient='records'))
+        return "hello"
+    
+    return
 
 
 def create_app():
@@ -108,5 +129,5 @@ if __name__ == '__main__':
     for m in opt.model:
         models[m] = torch.hub.load('ultralytics/yolov5', 'custom', './yolov5/best.pt', force_reload=True, skip_validation=True)
 
-    create_app().run()
+    create_app().run('0.0.0.0', port=5000, debug=False)
     #app.run(host='0.0.0.0', port=opt.port)  # debug=True causes Restarting with stat
