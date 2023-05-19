@@ -16,6 +16,8 @@ import json
 import firebase_admin
 from firebase_admin import credentials
 
+from yolov5.detect import run
+
 cred = credentials.Certificate("./serviceAccountKey.json")
 firebase_admin.initialize_app(cred)
 
@@ -70,6 +72,36 @@ def predict(model):
     
     return "fail"
 
+
+
+
+def save2(user_id, bug_id, result_url):
+
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO scenario (user_id, bug_id, image) VALUES(%s, %s, %s)", (user_id, bug_id, result_url))
+    conn.commit()
+        
+    return "success"
+    
+
+
+@app.route("/model/video", methods=['POST'])
+def analyze2():
+    if request.method != 'POST':
+        return
+    
+    # params = request.get_json()
+    # user_id = params["user_id"]
+    # video_url = params["viedo_url"]
+
+    run(source='https://firebasestorage.googleapis.com/v0/b/debugging-eb903.appspot.com/o/Project001.mp4?alt=media&token=2f903157-f382-4f5c-ac3a-0bd986c08df5', weights='./yolov5/runs/train/model_v3/weights/best.pt')
+
+    # model(video_url) = { bug_id, res_url }
+    # save2(user_id, bug_id, result_url)
+    
+
+
+    return "hello"
 
 
 # API - Save scenario
@@ -127,7 +159,7 @@ if __name__ == '__main__':
     opt = parser.parse_args()
 
     for m in opt.model:
-        models[m] = torch.hub.load('ultralytics/yolov5', 'custom', './yolov5/best.pt', force_reload=True, skip_validation=True)
+        models[m] = torch.hub.load('ultralytics/yolov5', 'custom', './yolov5/runs/train/model_v3/weights/best.pt', force_reload=True, skip_validation=True)
 
     create_app().run('0.0.0.0', port=5000, debug=False)
     #app.run(host='0.0.0.0', port=opt.port)  # debug=True causes Restarting with stat
