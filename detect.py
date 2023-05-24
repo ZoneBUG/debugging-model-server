@@ -49,10 +49,13 @@ from utils.general import (LOGGER, Profile, check_file, check_img_size, check_im
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, smart_inference_mode
 
+frame = 0
+frames = 0
+
 
 @smart_inference_mode()
 def run(
-        weights=ROOT / 'yolov5s.pt',  # model path or triton URL
+        weights=ROOT / './yolov5/runs/train/model_v3/weights/best.pt',  # model path or triton URL
         source=ROOT / 'data/images',  # file/dir/URL/glob/screen/0(webcam)
         data=ROOT / 'data/coco128.yaml',  # dataset.yaml path
         imgsz=(640, 640),  # inference size (height, width)
@@ -80,6 +83,7 @@ def run(
         dnn=False,  # use OpenCV DNN for ONNX inference
         vid_stride=1,  # video frame-rate stride
 ):
+    global frame, frames
     source = str(source)
     save_img = not nosave and not source.endswith('.txt')  # save inference images
     is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
@@ -111,6 +115,9 @@ def run(
         dataset = LoadImages(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
     vid_path, vid_writer = [None] * bs, [None] * bs
 
+    # CHANGE: Assumption: first detection is traced
+    det0_trace = []
+
     # Run inference
     model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile())
@@ -141,7 +148,7 @@ def run(
                 p, im0, frame = path[i], im0s[i].copy(), dataset.count
                 s += f'{i}: '
             else:
-                p, im0, frame = path, im0s.copy(), getattr(dataset, 'frame', 0)
+                p, im0, frame, frames = path, im0s.copy(), getattr(dataset, 'frame', 0), getattr(dataset, 'frames', 0)
 
             p = Path(p)  # to Path
             save_path = str(save_dir / p.name)  # im.jpg
@@ -160,19 +167,41 @@ def run(
                     s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
                 # Write results
-                for *xyxy, conf, cls in reversed(det):
+                for i_det, (*xyxy, conf, cls) in enumerate(reversed(det)):
                     if save_txt:  # Write to file
                         xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                         line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
                         with open(f'{txt_path}.txt', 'a') as f:
                             f.write(('%g ' * len(line)).rstrip() % line + '\n')
-
+                    
                     if save_img or save_crop or view_img:  # Add bbox to image
                         c = int(cls)  # integer class
                         label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
                         annotator.box_label(xyxy, label, color=colors(c, True))
+                        # CHANGE: first detection is traced
+                        if i_det==0:                          
+                          x0,y0, x1,y1 = int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])
+                          center = (x0+x1)//2, (y0+y1)//2
+                          print ('append', center)
+                          det0_trace.append(center)
+
                     if save_crop:
                         save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
+            
+            # CHANGE: trace 를 기록했다가 출력하는 부분. 
+            # every frame
+            # if True:
+            # last frame
+            
+            if frame >= (frames-10):
+              print('|det0_trace| =', len(det0_trace))
+              for prev, next in zip(det0_trace, det0_trace[1:]):
+                red_color = (0, 0, 255)
+                cv2.line(im0, prev, next, red_color, 3)
+
+              # save image
+              save_last_image = str(Path(save_path).with_suffix('.png')) 
+              cv2.imwrite(save_last_image, im0)
 
             # Stream results
             im0 = annotator.result()
