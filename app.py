@@ -1,12 +1,18 @@
 import argparse
 import io
 
-import torch
-from flask import Flask, request
-from PIL import Image
+import urllib.request
+import os
 import datetime
 
-# import detect
+
+from flask import Flask, request
+
+from PIL import Image, ImageDraw
+import numpy as np
+import cv2
+import torch
+from torchvision.transforms import functional as F
 
 import config
 import pymysql
@@ -84,24 +90,26 @@ def save2(user_id, bug_id, result_url):
     return "success"
     
 
-
+# API - Create & Save Scenario
 @app.route("/model/video", methods=['POST'])
 def analyze2():
     if request.method != 'POST':
         return
     
-    # params = request.get_json()
+    params = request.get_json()
     # user_id = params["user_id"]
-    # video_url = params["viedo_url"]
+    video_url = params["url"]
 
-    run(source='https://firebasestorage.googleapis.com/v0/b/debugging-eb903.appspot.com/o/Project001.mp4?alt=media&token=2f903157-f382-4f5c-ac3a-0bd986c08df5', weights='./yolov5/runs/train/model_v3/weights/best.pt')
+    video_path = os.path.join('./videos', 'input_video.mp4')
+    urllib.request.urlretrieve(video_url, video_path)
 
-    # model(video_url) = { bug_id, res_url }
-    # save2(user_id, bug_id, result_url)
+    try :
+        run(weights='./yolov5/runs/train/model_v3/weights/best.pt', source=video_path)
+        return "success"
     
+    except:
+        return "fail"
 
-
-    return "hello"
 
 
 # API - Save scenario
