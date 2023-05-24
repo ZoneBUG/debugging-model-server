@@ -51,7 +51,8 @@ from utils.torch_utils import select_device, smart_inference_mode
 
 frame = 0
 frames = 0
-
+save_path = ''
+object_name = 'none'
 
 @smart_inference_mode()
 def run(
@@ -83,7 +84,7 @@ def run(
         dnn=False,  # use OpenCV DNN for ONNX inference
         vid_stride=1,  # video frame-rate stride
 ):
-    global frame, frames
+    global frame, frames, save_path, object_name
     source = str(source)
     save_img = not nosave and not source.endswith('.txt')  # save inference images
     is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
@@ -166,6 +167,9 @@ def run(
                     n = (det[:, 5] == c).sum()  # detections per class
                     s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
+                    # ----------------------------------------------------------------------- 추적 중인 객체의 name 가져오기
+                    object_name = [names[int(cls)] for (*_, cls) in det][0]
+
                 # Write results
                 for i_det, (*xyxy, conf, cls) in enumerate(reversed(det)):
                     if save_txt:  # Write to file
@@ -243,6 +247,9 @@ def run(
         LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
     if update:
         strip_optimizer(weights[0])  # update model (to fix SourceChangeWarning)
+
+    dir_name = str(Path(save_dir))[19:]
+    return [dir_name, object_name]
 
 
 def parse_opt():

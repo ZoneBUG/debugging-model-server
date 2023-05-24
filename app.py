@@ -8,11 +8,8 @@ import datetime
 
 from flask import Flask, request
 
-from PIL import Image, ImageDraw
-import numpy as np
-import cv2
+from PIL import Image
 import torch
-from torchvision.transforms import functional as F
 
 import config
 import pymysql
@@ -20,12 +17,13 @@ import pymysql
 import json
 
 import firebase_admin
-from firebase_admin import credentials
+from firebase_admin import credentials, storage
 
 from yolov5.detect import run
 
 cred = credentials.Certificate("./serviceAccountKey.json")
-firebase_admin.initialize_app(cred)
+firebase_admin.initialize_app(cred, {'storageBucket': config.fb_storage_bucket})
+bucket = storage.bucket()
 
 app = Flask(__name__)
 models = {}
@@ -36,6 +34,10 @@ conn = pymysql.connect(
     password = config.db['password'],
     db = config.db['database']
 )
+
+bug_list = {
+    "Cockroach": 1
+}
 
 
 # API - Search
@@ -80,81 +82,67 @@ def predict(model):
 
 
 
-
-def save2(user_id, bug_id, result_url):
-
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO scenario (user_id, bug_id, image) VALUES(%s, %s, %s)", (user_id, bug_id, result_url))
-    conn.commit()
-        
-    return "success"
-    
-
-# API - Create & Save Scenario
+# API - Create & Save Scenario for Report
 @app.route("/model/video", methods=['POST'])
 def analyze2():
     if request.method != 'POST':
         return
     
+    created_at =  datetime.datetime.now()
     params = request.get_json()
-    # user_id = params["user_id"]
+    user_id = params["user_id"]
     video_url = params["url"]
 
     video_path = os.path.join('./videos', 'input_video.mp4')
     urllib.request.urlretrieve(video_url, video_path)
 
     try :
-        run(weights='./yolov5/runs/train/model_v3/weights/best.pt', source=video_path)
-        return "success"
-    
+        result = run(weights='./yolov5/runs/train/model_v3/weights/best.pt', source=video_path)
+        img_dir_path = result[0]
+        object_name = result[1]
+
+        # 영상 분석 결과, 발견된 해충 없는 경우
+        if(object_name not in bug_list): 
+            return "fail"
+        
+        bug_id = bug_list[object_name]            
+
+        # Firebase Storage에 이미지 업로드
+        firebase_img_url = uploadImgToFirebase(img_dir_path, user_id)
+
+        # RDS에 Scenario INSERT
+        return saveScenario(user_id, bug_id, firebase_img_url, created_at)
+
     except:
         return "fail"
 
 
+# Firebase Storage에 결과 이미지 업로드 후 url 경로 리턴
+def uploadImgToFirebase(img_dir_path, user_id):
+    local_file_path = "./yolov5/runs/detect/" + img_dir_path + "/input_video.png"
+    remote_file_path = "Report/" + str(user_id) + "/" + img_dir_path
+    blob = bucket.blob(remote_file_path)
 
-# API - Save scenario
-@app.route("/scenario", methods=['POST'])
-def save():
-    if request.method != 'POST':
-        return
-    
-    params = request.get_json()
+    blob.upload_from_filename(filename=local_file_path, content_type='image/png')   # Uplad Image to Firebase Strage
+    blob.make_public()  # Get Public URL from blob
+
+    return blob.public_url
+
+
+# RDS에 Scenario 저장
+def saveScenario(user_id, bug_id, img_url, created_at):
     cursor = conn.cursor()
-
-    if params:
-        userId = params['userId']
-        bugId = params['bugId']
-        image = params['image']
-        createdAt =  datetime.datetime.now()
+    cursor.execute(
+        "INSERT INTO scenario (user_id, bug_id, image, created_at) VALUES(%s, %s, %s, %s)", 
+        (user_id, bug_id, img_url, created_at)
+    )
+    conn.commit()
         
-        cursor.execute("INSERT INTO scenario (user_id, bug_id, image, created_at) VALUES(%s, %s, %s, %s)", (userId, bugId, image, createdAt))
-        conn.commit()
-        
-        return "success"
-    
-    return
+    return "success"
 
 
 
-# API -  Create Report
-@app.route("/report/<model>", methods=['POST'])
-def analyze(model):
-    if request.method != 'POST':
-        return
-    
-    params = request.get_json()
-    
-    if params:
-        video_url = params['url']
-        
-        # if model in models:
-        results = models[model](size = 1920, source = video_url)
-        print(results.to_json(orient='records'))
-        return "hello"
-    
-    return
-
-
+# Config 설정
 def create_app():
     app.config.from_pyfile("config.py")
     return app
