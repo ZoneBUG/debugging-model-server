@@ -36,7 +36,12 @@ conn = pymysql.connect(
 )
 
 bug_list = {
-    "Cockroach": 1
+	"cockroach": 1,
+	"scutigeridae": 2,
+	"centipede": 4,
+	"diplopoda": 5,
+	"silverfish": 6,
+	"dermaptera": 7
 }
 
 
@@ -62,11 +67,12 @@ def predict(model):
 
             else:
                 r = json.loads(results.pandas().xyxy[0]["name"].to_json(orient="records"))
-
-                if(r[0] == 'Cockroach'):
+                
+                if(r[0] in bug_list):
+                    bug_id = bug_list[r[0]]
                     sql = "select * from bug where id = %s"
                     cursor = conn.cursor()
-                    cursor.execute(sql, 1)
+                    cursor.execute(sql, bug_id)
                     info = cursor.fetchone()
                     species = info[1]
                     description = info[2]
